@@ -5,6 +5,19 @@ const server = http.createServer();
 
 const port = 4000;
 
+const colors = [
+  "#f82d39",
+  "#2d5165",
+  "#b9ab6c",
+  "#0c3fb5",
+  "#900599",
+  "#b57731",
+  "#56e616",
+  "#913353",
+  "#f1d65d",
+  "#3e2528",
+];
+
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:3000",
