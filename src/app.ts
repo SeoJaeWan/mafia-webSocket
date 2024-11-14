@@ -5,19 +5,6 @@ const server = http.createServer();
 
 const port = 4000;
 
-const colors = [
-  "#f82d39",
-  "#2d5165",
-  "#b9ab6c",
-  "#0c3fb5",
-  "#900599",
-  "#b57731",
-  "#56e616",
-  "#913353",
-  "#f1d65d",
-  "#3e2528",
-];
-
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:3000",
@@ -26,8 +13,7 @@ const io = new Server(server, {
 });
 
 interface Chat {
-  name: string;
-  roomId: string;
+  turn: string;
   message: string;
 }
 
@@ -41,6 +27,7 @@ interface CustomSocket extends Socket {
   roomId?: string;
   ready?: boolean;
   role?: string;
+  loading?: boolean;
 }
 
 export const playableRoles = Object.freeze([
@@ -79,10 +66,16 @@ export interface ISetting extends Record<PlayableRoleNames, number> {
   time: number;
 }
 
-const getPlayerInRoom = (roomId: string) => {
+const getRooms = (roomId: string) => {
   const rooms = io.sockets.adapter.rooms;
 
-  return Array.from(rooms.get(roomId) || []).map((id) => {
+  return Array.from(rooms.get(roomId) || []);
+};
+
+const getPlayerInRoom = (roomId: string) => {
+  const rooms = getRooms(roomId);
+
+  return rooms.map((id) => {
     const userSocket = io.sockets.sockets.get(id) as CustomSocket;
     return { name: userSocket.name, isReady: false };
   });
@@ -150,11 +143,23 @@ io.on("connection", (socket: CustomSocket) => {
     socket.roomId = undefined;
   });
 
-  socket.on("chat", ({ message }: Chat) => {
+  socket.on("chat", ({ message, turn }: Chat) => {
     const { roomId, name } = socket;
 
     if (roomId) {
-      socket.to(roomId).emit("messages", { name, message });
+      if (turn === "kill") {
+        const rooms = getRooms(roomId);
+
+        rooms.forEach((id) => {
+          const userSocket = io.sockets.sockets.get(id) as CustomSocket;
+
+          if (userSocket.role === "mafia") {
+            socket.to(id).emit("messages", { name, message });
+          }
+        });
+      } else {
+        socket.to(roomId).emit("messages", { name, message });
+      }
     }
   });
 
@@ -162,16 +167,16 @@ io.on("connection", (socket: CustomSocket) => {
     const { roomId } = socket;
     const { time, mode, ...roles } = setting;
 
-    const randomRoles = Object.entries(roles).reduce((acc, [role, count]) => {
-      return acc.concat(Array(count).fill(role));
-    }, [] as PlayableRoleNames[]);
-
-    shuffle(randomRoles);
-
-    const rooms = io.sockets.adapter.rooms;
-
     if (roomId) {
-      Array.from(rooms.get(roomId) || []).forEach((id, index) => {
+      const randomRoles = Object.entries(roles).reduce((acc, [role, count]) => {
+        return acc.concat(Array(count).fill(role));
+      }, [] as PlayableRoleNames[]);
+
+      shuffle(randomRoles);
+
+      const rooms = getRooms(roomId);
+
+      rooms.forEach((id, index) => {
         const userSocket = io.sockets.sockets.get(id) as CustomSocket;
         userSocket.role = randomRoles[index];
 
@@ -182,15 +187,46 @@ io.on("connection", (socket: CustomSocket) => {
     }
   });
 
+  socket.on(
+    "animationFinish",
+    ({ turn, day }: { turn: string; day: number }) => {
+      const { roomId } = socket;
+      if (roomId) {
+        const rooms = getRooms(roomId);
+
+        socket.loading = true;
+
+        const allLoading = rooms.every((id) => {
+          const userSocket = io.sockets.sockets.get(id) as CustomSocket;
+
+          return userSocket.loading;
+        });
+
+        //
+
+        if (allLoading) {
+          rooms.forEach((id) => {
+            const userSocket = io.sockets.sockets.get(id) as CustomSocket;
+
+            if (userSocket.loading) {
+              userSocket.loading = false;
+              userSocket.emit("animationFinishRes", { turn, day });
+            }
+          });
+        }
+      }
+    }
+  );
+
   socket.on("ready", () => {
     const { roomId, name } = socket;
 
     if (roomId) {
-      const rooms = io.sockets.adapter.rooms;
+      const rooms = getRooms(roomId);
 
       socket.ready = !socket.ready;
 
-      const playerInRoom = Array.from(rooms.get(roomId) || []).map((id) => {
+      const playerInRoom = rooms.map((id) => {
         const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
         return {
