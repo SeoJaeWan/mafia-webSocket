@@ -15,6 +15,7 @@ const io = new Server(server, {
 interface Chat {
   turn: string;
   message: string;
+  isSystem?: boolean;
 }
 
 interface Room {
@@ -193,10 +194,10 @@ io.on("connection", (socket: CustomSocket) => {
     socket.roomId = undefined;
   });
 
-  socket.on("chat", ({ message, turn }: Chat) => {
+  socket.on("chat", ({ message, turn, isSystem }: Chat) => {
     const { roomId, name } = socket;
+    const sender = isSystem ? "알림" : name;
 
-    console.log(roomId);
     if (roomId) {
       const rooms = getRooms(roomId);
 
@@ -204,13 +205,15 @@ io.on("connection", (socket: CustomSocket) => {
         sendAll(rooms, (userSocket) => {
           if (userSocket.role === "mafia")
             return {
-              res: "messages",
-              data: { name, message },
+              res: "chatRss",
+              data: { name: sender, message, isSystem },
             };
         });
       } else {
-        console.log("message", message);
-        sendAll(rooms, () => ({ res: "messages", data: { name, message } }));
+        sendAll(rooms, () => ({
+          res: "chatRss",
+          data: { name: sender, message, isSystem },
+        }));
       }
     }
   });
