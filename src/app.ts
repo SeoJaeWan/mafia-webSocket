@@ -35,6 +35,17 @@ interface CustomSocket extends Socket {
   isLoading?: boolean;
 }
 
+type Turn =
+  | ""
+  | "intro"
+  | "kill" // 채팅 설명
+  | "heal" // 채팅 설명
+  | "check" // 채팅 설명
+  | "discussion" // 채팅 설명
+  | "vote" // 채팅 설명
+  | "마피아 사망"
+  | "일반인 사망";
+
 const colors = [
   "#f82d39",
   "#2d5165",
@@ -84,19 +95,16 @@ export interface ISetting extends Record<PlayableRoleNames, number> {
   time: number;
 }
 
-const getRooms = (roomId: string) => {
+const getRooms = (
+  roomId: string,
+  filter: (socket: CustomSocket) => boolean = (socket) => true
+) => {
   const rooms = io.sockets.adapter.rooms;
 
-  return Array.from(rooms.get(roomId) || []);
-};
-
-const getPlayerInRoom = (roomId: string) => {
-  const rooms = getRooms(roomId);
-
-  return rooms.map((id) => {
+  return Array.from(rooms.get(roomId) || []).filter((id) => {
     const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
-    return userSocket.name;
+    return userSocket.name && filter(userSocket);
   });
 };
 
@@ -114,11 +122,25 @@ function shuffle(array: PlayableRoleNames[]) {
   }
 }
 
-function sendAll<T>(sender: string[], res: string, data: T) {
-  sender.forEach((id) => {
+interface Emit<T> {
+  res: string;
+  data: T;
+}
+
+function sendAll<T>(
+  sender: string[],
+  getEmit: (userSocket: CustomSocket, index: number) => Emit<T> | void
+) {
+  sender.forEach((id, index) => {
     const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
-    userSocket.emit(res, data);
+    const emit = getEmit(userSocket, index);
+
+    if (emit) {
+      const { res, data } = emit;
+
+      userSocket.emit(res, data);
+    }
   });
 }
 
@@ -154,11 +176,10 @@ io.on("connection", (socket: CustomSocket) => {
     const players = getPlayers();
     const rooms = getRooms(roomId);
 
-    rooms.forEach((id) => {
-      const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-      userSocket.emit("enterRoomRes", { name: userSocket.name, players });
-    });
+    sendAll(rooms, (userSocket) => ({
+      res: "enterRoomRes",
+      data: { name: userSocket.name, players },
+    }));
   });
 
   socket.on("leaveRoom", () => {
@@ -175,19 +196,21 @@ io.on("connection", (socket: CustomSocket) => {
   socket.on("chat", ({ message, turn }: Chat) => {
     const { roomId, name } = socket;
 
+    console.log(roomId);
     if (roomId) {
+      const rooms = getRooms(roomId);
+
       if (turn === "kill") {
-        const rooms = getRooms(roomId);
-
-        rooms.forEach((id) => {
-          const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-          if (userSocket.role === "mafia") {
-            socket.to(id).emit("messages", { name, message });
-          }
+        sendAll(rooms, (userSocket) => {
+          if (userSocket.role === "mafia")
+            return {
+              res: "messages",
+              data: { name, message },
+            };
         });
       } else {
-        sendAll(getRooms(roomId), "messages", { name, message });
+        console.log("message", message);
+        sendAll(rooms, () => ({ res: "messages", data: { name, message } }));
       }
     }
   });
@@ -218,14 +241,13 @@ io.on("connection", (socket: CustomSocket) => {
 
       const players = getPlayers();
 
-      rooms.forEach((id, index) => {
-        const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-        userSocket.emit("gameStartRes", {
+      sendAll(rooms, (_, index) => ({
+        res: "gameStartRes",
+        data: {
           role: randomRoles[index],
           players,
-        });
-      });
+        },
+      }));
     }
   });
 
@@ -245,54 +267,105 @@ io.on("connection", (socket: CustomSocket) => {
       //
 
       if (allLoading) {
-        rooms.forEach((id) => {
-          const userSocket = io.sockets.sockets.get(id) as CustomSocket;
+        sendAll(rooms, (userSocket) => {
+          userSocket.isLoading = false;
 
-          if (userSocket.isLoading) {
-            userSocket.isLoading = false;
-            userSocket.emit("animationFinishRes");
-          }
+          return {
+            res: "animationFinishRes",
+            data: "",
+          };
         });
       }
     }
   });
 
+  const gameFinish = (
+    aliveUser: string[],
+    dieUser: CustomSocket,
+    turn: string,
+    callback: () => void
+  ) => {
+    if (turn === "vote" && dieUser.role === "politician") {
+      return sendAll(aliveUser, () => ({
+        res: "gameFinish",
+        data: "0",
+      }));
+    }
+
+    const [mafia, citizen] = aliveUser.reduce(
+      (acc, cur) => {
+        const userSocket = io.sockets.sockets.get(cur) as CustomSocket;
+
+        if (userSocket.isDie) return acc;
+        else if (userSocket.role === "mafia") return [acc[0] + 1, acc[1]];
+        else return [acc[0], acc[1] + 1];
+      },
+      [0, 0]
+    );
+
+    if (mafia === 0) {
+      return sendAll(aliveUser, () => ({
+        res: "gameFinish",
+        data: "1",
+      }));
+    } else if (mafia >= citizen) {
+      return sendAll(aliveUser, () => ({
+        res: "gameFinish",
+        data: "2",
+      }));
+    }
+
+    callback();
+  };
+
   const submitResult = (
     selectedUsers: string[],
-    turn: string,
-    name: string,
-    rooms: string[]
+    aliveUser: string[],
+    turn: string
   ) => {
     const mostSelected = selectedUsers.reduce((acc, cur) => {
       acc[cur] = (acc[cur] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    const [user, votes] = Object.entries(mostSelected).reduce(
+    const [name, votes] = Object.entries(mostSelected).reduce(
       (max, entry) => (entry[1] > max[1] ? entry : max),
       ["", -1]
     );
 
-    const dieUser = rooms.reduce((acc, id) => {
+    const rooms = getRooms(socket.roomId || "");
+
+    const dieUser = aliveUser.reduce((acc, id) => {
       const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
-      return userSocket.name === user ? userSocket : acc;
+      return userSocket.name === name ? userSocket : acc;
     }, {} as CustomSocket);
 
-    if (turn === "마피아 투표") {
-      if (rooms.length / 2 < votes) {
+    if (turn === "vote") {
+      if (aliveUser.length / 2 < votes) {
         dieUser.isDie = true;
 
         const players = getPlayers();
-        sendAll(rooms, "마피아 투표 result", { name, players });
+        gameFinish(aliveUser, dieUser, turn, () =>
+          sendAll(rooms, () => ({
+            res: "vote result",
+            data: { name, players },
+          }))
+        );
       } else {
-        sendAll(rooms, "마피아 투표 result", "");
+        sendAll(rooms, () => ({
+          res: "vote result",
+          data: "",
+        }));
       }
     }
 
     if (turn === "heal") {
       dieUser.isHeal = true;
-      sendAll(rooms, "heal result", "");
+      sendAll(rooms, () => ({
+        res: "heal result",
+        data: "",
+      }));
     }
 
     if (turn === "check") {
@@ -302,16 +375,24 @@ io.on("connection", (socket: CustomSocket) => {
 
     if (turn === "kill") {
       if (dieUser.isHeal) {
-        sendAll(rooms, "kill result", "");
+        sendAll(rooms, () => ({
+          res: "kill result",
+          data: "",
+        }));
       } else {
         dieUser.isDie = true;
         const players = getPlayers();
 
-        sendAll(rooms, "kill result", { name, players });
+        gameFinish(aliveUser, dieUser, turn, () =>
+          sendAll(rooms, () => ({
+            res: "kill result",
+            data: { name, players },
+          }))
+        );
       }
     }
 
-    rooms.forEach((id) => {
+    aliveUser.forEach((id) => {
       const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
       userSocket.selected = "";
@@ -330,18 +411,17 @@ io.on("connection", (socket: CustomSocket) => {
           kill: ["mafia"],
           heal: ["doctor"],
           check: ["police"],
-          "마피아 투표": ["mafia", "citizen", "politician", "doctor", "police"],
+          vote: ["mafia", "citizen", "politician", "doctor", "police"],
         }[turn] || [];
 
-      const rooms = getRooms(roomId);
+      const aliveUser = getRooms(roomId, (userSocket) => !userSocket.isDie);
+      const sameRoleUser = getRooms(
+        roomId,
+        (userSocket) =>
+          !userSocket.isDie && turnRole.includes(userSocket.role || "")
+      );
 
-      const roleRooms = getRooms(roomId).filter((id) => {
-        const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-        return turnRole.includes(userSocket.role || "");
-      });
-
-      const selectedUsers = roleRooms
+      const selectedUsers = sameRoleUser
         .map((id) => {
           const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
@@ -349,10 +429,15 @@ io.on("connection", (socket: CustomSocket) => {
         })
         .filter((name) => name) as string[];
 
-      if (selectedUsers.length === roleRooms.length) {
-        submitResult(selectedUsers, turn, name, rooms);
+      if (selectedUsers.length === sameRoleUser.length) {
+        submitResult(selectedUsers, aliveUser, turn);
       } else {
-        sendAll(roleRooms, "selectUserRes", { selector: socket.name, name });
+        sendAll(sameRoleUser, () => {
+          return {
+            res: "selectUserRes",
+            data: { selector: socket.name, name },
+          };
+        });
       }
     }
   });
@@ -371,13 +456,13 @@ io.on("connection", (socket: CustomSocket) => {
       });
 
       if (allLoading) {
-        rooms.forEach((id) => {
-          const userSocket = io.sockets.sockets.get(id) as CustomSocket;
+        sendAll(rooms, (userSocket) => {
+          userSocket.isLoading = false;
 
-          if (userSocket.isLoading) {
-            userSocket.isLoading = false;
-            userSocket.emit("discussionFinishRes");
-          }
+          return {
+            res: "discussionFinishRes",
+            data: "",
+          };
         });
       }
     }
@@ -391,7 +476,7 @@ io.on("connection", (socket: CustomSocket) => {
 
       const players = getPlayers();
 
-      sendAll(getRooms(roomId), "readyRes", players);
+      sendAll(getRooms(roomId), () => ({ res: "readyRes", data: players }));
     }
   });
 });
