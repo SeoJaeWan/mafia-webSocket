@@ -96,6 +96,12 @@ export interface ISetting extends Record<PlayableRoleNames, number> {
   time: number;
 }
 
+export interface PlayerStatus {
+  isReady?: boolean;
+  isDie?: boolean;
+  role?: PlayableRoleNames;
+}
+
 const getRooms = (
   roomId: string,
   filter: (socket: CustomSocket) => boolean = (socket) => true
@@ -152,15 +158,38 @@ io.on("connection", (socket: CustomSocket) => {
 
     const rooms = getRooms(roomId);
 
-    const players = rooms.map((id) => {
+    const players = rooms.map((id, idx) => {
       const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
       return {
         name: userSocket.name,
-        color: userSocket.color,
-        isDie: userSocket.isDie,
+        color: colors[idx],
         isReady: userSocket.isReady,
       };
+    });
+
+    return players;
+  };
+
+  const getPlayerStatuses = () => {
+    const { roomId } = socket;
+    if (!roomId) return;
+
+    const rooms = getRooms(roomId);
+
+    const players = rooms.map((id) => {
+      const userSocket = io.sockets.sockets.get(id) as CustomSocket;
+
+      const status: PlayerStatus = {
+        isDie: userSocket.isDie,
+        role: undefined,
+      };
+
+      if (userSocket.isDie) {
+        status.role = userSocket.role as PlayableRoleNames;
+      }
+
+      return status;
     });
 
     return players;
@@ -179,7 +208,7 @@ io.on("connection", (socket: CustomSocket) => {
 
     sendAll(rooms, (userSocket) => ({
       res: "enterRoomRes",
-      data: { name: userSocket.name, players },
+      data: { name: userSocket.name, players, roomId },
     }));
   });
 
@@ -239,16 +268,15 @@ io.on("connection", (socket: CustomSocket) => {
         userSocket.isDie = false;
         userSocket.isHeal = false;
         userSocket.isReady = false;
-        userSocket.color = colors[index];
       });
 
-      const players = getPlayers();
+      const playerStatuses = getPlayerStatuses();
 
       sendAll(rooms, (_, index) => ({
         res: "gameStartRes",
         data: {
           role: randomRoles[index],
-          players,
+          playerStatuses,
         },
       }));
     }
@@ -348,11 +376,11 @@ io.on("connection", (socket: CustomSocket) => {
       if (aliveUser.length / 2 < votes) {
         dieUser.isDie = true;
 
-        const players = getPlayers();
+        const playerStatuses = getPlayerStatuses();
         gameFinish(aliveUser, dieUser, turn, () =>
           sendAll(rooms, () => ({
             res: "vote result",
-            data: { name, players },
+            data: { name, playerStatuses },
           }))
         );
       } else {
@@ -384,12 +412,12 @@ io.on("connection", (socket: CustomSocket) => {
         }));
       } else {
         dieUser.isDie = true;
-        const players = getPlayers();
+        const playerStatuses = getPlayerStatuses();
 
         gameFinish(aliveUser, dieUser, turn, () =>
           sendAll(rooms, () => ({
             res: "kill result",
-            data: { name, players },
+            data: { name, playerStatuses },
           }))
         );
       }
@@ -479,7 +507,10 @@ io.on("connection", (socket: CustomSocket) => {
 
       const players = getPlayers();
 
-      sendAll(getRooms(roomId), () => ({ res: "readyRes", data: players }));
+      sendAll(getRooms(roomId), () => ({
+        res: "readyRes",
+        data: players,
+      }));
     }
   });
 });
