@@ -12,11 +12,6 @@ const io = new Server(server, {
   },
 });
 
-interface Chat {
-  turn: string;
-  message: string;
-}
-
 interface Room {
   roomId: string;
   name: string;
@@ -72,18 +67,7 @@ export const playableRoles = Object.freeze([
   },
 ] as const);
 
-export const playMode = Object.freeze([
-  { label: "동률", value: "even" },
-  { label: "난장판", value: "chaos" },
-] as const);
-
 type PlayableRoleNames = (typeof playableRoles)[number]["name"];
-type PlayModeValues = (typeof playMode)[number];
-
-export interface ISetting extends Record<PlayableRoleNames, number> {
-  mode: PlayModeValues;
-  time: number;
-}
 
 const getRooms = (
   roomId: string,

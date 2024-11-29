@@ -6,6 +6,7 @@
     "start": "tsx watch ./src/app.ts"
   },
   "dependencies": {
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "tsx": "^4.19.2"
   }
 }
