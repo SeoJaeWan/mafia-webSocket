@@ -35,6 +35,11 @@ interface CustomSocket extends Socket {
   isLoading?: boolean;
 }
 
+interface Selected {
+  name: string;
+  selector: string;
+}
+
 const colors = [
   "#f82d39",
   "#2d5165",
@@ -80,12 +85,6 @@ export interface ISetting extends Record<PlayableRoleNames, number> {
   time: number;
 }
 
-export interface PlayerStatus {
-  isReady?: boolean;
-  isDie?: boolean;
-  role?: PlayableRoleNames;
-}
-
 const getRooms = (
   roomId: string,
   filter: (socket: CustomSocket) => boolean = (socket) => true
@@ -99,7 +98,7 @@ const getRooms = (
   });
 };
 
-function shuffle(array: PlayableRoleNames[]) {
+const shuffle = (array: PlayableRoleNames[]) => {
   let currentIndex = array.length;
 
   while (currentIndex != 0) {
@@ -111,17 +110,17 @@ function shuffle(array: PlayableRoleNames[]) {
       array[currentIndex],
     ];
   }
-}
+};
 
 interface Emit<T> {
   res: string;
   data: T;
 }
 
-function sendAll<T>(
+const sendAll = <T>(
   sender: string[],
   getEmit: (userSocket: CustomSocket, index: number) => Emit<T> | void
-) {
+) => {
   sender.forEach((id, index) => {
     const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
@@ -133,7 +132,19 @@ function sendAll<T>(
       userSocket.emit(res, data);
     }
   });
-}
+};
+
+const getTopVotedUser = (selectedList: Selected[]) => {
+  const mostSelected = selectedList.reduce((acc, cur) => {
+    acc[cur.name] = (acc[cur.name] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return Object.entries(mostSelected).reduce(
+    (max, entry) => (entry[1] > max[1] ? entry : max),
+    ["", -1]
+  );
+};
 
 io.on("connection", (socket: CustomSocket) => {
   const getPlayerList = (roomId: string) => {
@@ -142,13 +153,69 @@ io.on("connection", (socket: CustomSocket) => {
     const players = rooms.map((id, idx) => {
       const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
+      userSocket.color = colors[idx];
+
       return {
         name: userSocket.name,
-        color: colors[idx],
+        color: userSocket.color,
       };
     });
 
     return players;
+  };
+
+  const getPlayer = (roomId: string, name: string) => {
+    const rooms = getRooms(roomId);
+
+    const players = rooms.reduce((acc, cur) => {
+      const userSocket = io.sockets.sockets.get(cur) as CustomSocket;
+
+      if (userSocket.name === name) {
+        return userSocket;
+      }
+
+      return acc;
+    }, {} as CustomSocket);
+
+    return players!;
+  };
+
+  const gameFinish = (roomId: string, callback: () => void) => {
+    const rooms = getRooms(roomId);
+
+    const mafia = rooms.reduce((acc, cur) => {
+      const userSocket = io.sockets.sockets.get(cur) as CustomSocket;
+
+      if (userSocket.role === "mafia" && !userSocket.isDie) {
+        return acc + 1;
+      }
+
+      return acc;
+    }, 0);
+
+    const citizen = rooms.reduce((acc, cur) => {
+      const userSocket = io.sockets.sockets.get(cur) as CustomSocket;
+
+      if (userSocket.role === "citizen" && !userSocket.isDie) {
+        return acc + 1;
+      }
+
+      return acc;
+    }, 0);
+
+    if (mafia >= citizen) {
+      sendAll(rooms, () => ({
+        res: "mafiaWin",
+        data: "",
+      }));
+    } else if (mafia === 0) {
+      sendAll(rooms, () => ({
+        res: "citizenWin",
+        data: "",
+      }));
+    } else {
+      callback();
+    }
   };
 
   socket.on("joinRoom", ({ roomId, name }: Room) => {
@@ -253,61 +320,52 @@ io.on("connection", (socket: CustomSocket) => {
     }
   });
 
-  // socket.on("selectUser", ({ name, turn }: { name: string; turn: string }) => {
-  //   const { roomId } = socket;
+  socket.on("sendMafiaMessage", ({ message, name, color }) => {
+    const { roomId } = socket;
 
-  //   if (roomId) {
-  //     socket.selected = name;
-
-  //     const turnRole =
-  //       {
-  //         kill: ["mafia"],
-  //         heal: ["doctor"],
-  //         check: ["police"],
-  //         vote: ["mafia", "citizen", "politician", "doctor", "police"],
-  //       }[turn] || [];
-
-  //     const aliveUser = getRooms(roomId, (userSocket) => !userSocket.isDie);
-  //     const sameRoleUser = getRooms(
-  //       roomId,
-  //       (userSocket) =>
-  //         !userSocket.isDie && turnRole.includes(userSocket.role || "")
-  //     );
-
-  //     const selectedUsers = sameRoleUser
-  //       .map((id) => {
-  //         const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-  //         return userSocket.selected;
-  //       })
-  //       .filter((name) => name) as string[];
-
-  //     if (selectedUsers.length === sameRoleUser.length) {
-  //       submitResult(selectedUsers, aliveUser, turn);
-  //     } else {
-  //       sendAll(sameRoleUser, () => {
-  //         return {
-  //           res: "selectUserRes",
-  //           data: { selector: socket.name, name },
-  //         };
-  //       });
-  //     }
-  //   }
-  // });
+    if (roomId) {
+      sendAll(getRooms(roomId), (userSocket) => {
+        if (userSocket.role === "mafia") {
+          return {
+            res: "getMessage",
+            data: { message, name, color, isSystem: false },
+          };
+        }
+      });
+    }
+  });
 
   socket.on("selectPlayer", (name) => {
     const { roomId } = socket;
 
     if (roomId) {
       const role = socket.role!;
+      const isMafia = role === "mafia";
+
+      const rooms = getRooms(roomId);
+
+      const max = isMafia
+        ? rooms.reduce((acc, cur) => {
+            const userSocket = io.sockets.sockets.get(cur) as CustomSocket;
+
+            if (userSocket.role === role) {
+              return acc + 1;
+            }
+
+            return acc;
+          }, 0)
+        : 1;
 
       sendAll(getRooms(roomId), (userSocket) => {
         if (role === userSocket.role) {
           return {
             res: "selectPlayerSuccess",
             data: {
-              name,
-              selector: socket.name,
+              selected: {
+                name,
+                selector: socket.name,
+              },
+              max,
             },
           };
         }
@@ -315,40 +373,101 @@ io.on("connection", (socket: CustomSocket) => {
     }
   });
 
-  // socket.on("gameStart", (setting: ISetting) => {
-  //   const { roomId } = socket;
-  //   const { time, mode, ...roles } = setting;
+  socket.on("mafiaVote", (selectedList: Selected[]) => {
+    const { roomId } = socket;
 
-  //   if (roomId) {
-  //     const randomRoles = Object.entries(roles).reduce((acc, [role, count]) => {
-  //       return acc.concat(Array(count).fill(role));
-  //     }, [] as PlayableRoleNames[]);
+    if (roomId) {
+      const rooms = getRooms(roomId);
 
-  //     shuffle(randomRoles);
+      const [name, votes] = getTopVotedUser(selectedList);
+      const dieUser = getPlayer(roomId, name);
 
-  //     const rooms = getRooms(roomId);
+      if (dieUser.isHeal) {
+        sendAll(rooms, () => ({
+          res: "citizenHeal",
+          data: "",
+        }));
+      } else {
+        dieUser.isDie = true;
 
-  //     socket.roles = randomRoles;
+        gameFinish(roomId, () =>
+          sendAll(rooms, () => ({
+            res: "citizenDie",
+            data: { name: dieUser.name, color: dieUser.color },
+          }))
+        );
+      }
 
-  //     rooms.forEach((id, index) => {
-  //       const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-  //       userSocket.role = randomRoles[index];
-  //       userSocket.isDie = false;
-  //       userSocket.isHeal = false;
-  //       userSocket.isReady = false;
-  //     });
+      rooms.forEach((id) => {
+        const userSocket = io.sockets.sockets.get(id) as CustomSocket;
 
-  //     const playerStatuses = getPlayerListtatuses();
+        userSocket.isHeal = false;
+      });
+    }
+  });
 
-  //     sendAll(rooms, (_, index) => ({
-  //       res: "gameStartRes",
-  //       data: {
-  //         role: randomRoles[index],
-  //         playerStatuses,
-  //       },
-  //     }));
-  //   }
-  // });
+  socket.on("citizenVote", (selectedList: Selected[]) => {
+    const { roomId } = socket;
+
+    if (roomId) {
+      const rooms = getRooms(roomId);
+
+      const [name, votes] = getTopVotedUser(selectedList);
+      const dieUser = getPlayer(roomId, name);
+
+      if (votes <= selectedList.length / 2) {
+        sendAll(rooms, () => ({
+          res: "voteSafe",
+          data: "",
+        }));
+      } else {
+        dieUser.isDie = true;
+
+        gameFinish(roomId, () =>
+          sendAll(rooms, () => ({
+            res: "voteKill",
+            data: { name: dieUser.name, color: dieUser.color },
+          }))
+        );
+      }
+    }
+  });
+
+  socket.on("heal", (selectedList: Selected[]) => {
+    const { roomId } = socket;
+
+    if (roomId) {
+      const rooms = getRooms(roomId);
+
+      const [name] = getTopVotedUser(selectedList);
+      const healUser = getPlayer(roomId, name);
+
+      healUser.isHeal = true;
+
+      sendAll(rooms, () => ({
+        res: "healSuccess",
+        data: "",
+      }));
+    }
+  });
+
+  socket.on("check", (selectedList: Selected[]) => {
+    const { roomId, name } = socket;
+
+    if (roomId) {
+      const rooms = getRooms(roomId);
+
+      const [name] = getTopVotedUser(selectedList);
+      const checkUser = getPlayer(roomId, name);
+
+      checkUser.isHeal = true;
+
+      sendAll(rooms, (userSocket) => ({
+        res: "policeResult",
+        data: userSocket.name === name ? checkUser.role : "",
+      }));
+    }
+  });
 
   socket.on("startGame", (roles: Record<PlayableRoleNames, number>) => {
     const { roomId } = socket;
@@ -366,6 +485,9 @@ io.on("connection", (socket: CustomSocket) => {
         const role = randomRoles[index];
 
         userSocket.role = role;
+        userSocket.isHeal = false;
+        userSocket.isReady = false;
+        userSocket.isDie = false;
 
         return {
           res: "startGameSuccess",
@@ -385,210 +507,21 @@ io.on("connection", (socket: CustomSocket) => {
     }
   });
 
-  socket.on("systemChat", ({ message }) => {
-    const { roomId } = socket;
-
-    if (roomId) {
-      const rooms = getRooms(roomId);
-
-      sendAll(rooms, () => ({
-        res: "chatRss",
-        data: { name: "알림", message, isSystem: true },
-      }));
-    }
-  });
-
-  socket.on("chat", ({ message, turn }: Chat) => {
+  socket.on("disconnect", () => {
     const { roomId, name } = socket;
 
     if (roomId) {
       const rooms = getRooms(roomId);
 
-      if (turn === "kill") {
-        sendAll(rooms, (userSocket) => {
-          if (userSocket.role === "mafia")
-            return {
-              res: "chatRss",
-              data: { name, message, isSystem: false },
-            };
-        });
-      } else {
-        sendAll(rooms, () => ({
-          res: "chatRss",
-          data: { name, message, isSystem: false },
-        }));
-      }
-    }
-  });
-
-  const gameFinish = (
-    aliveUser: string[],
-    dieUser: CustomSocket,
-    turn: string,
-    callback: () => void
-  ) => {
-    if (turn === "vote" && dieUser.role === "politician") {
-      return sendAll(aliveUser, () => ({
-        res: "gameFinish",
-        data: "politicianWin",
-      }));
-    }
-
-    const [mafia, citizen] = aliveUser.reduce(
-      (acc, cur) => {
-        const userSocket = io.sockets.sockets.get(cur) as CustomSocket;
-
-        if (userSocket.isDie) return acc;
-        else if (userSocket.role === "mafia") return [acc[0] + 1, acc[1]];
-        else return [acc[0], acc[1] + 1];
-      },
-      [0, 0]
-    );
-
-    if (mafia === 0) {
-      return sendAll(aliveUser, () => ({
-        res: "gameFinish",
-        data: "citizenWin",
-      }));
-    } else if (mafia >= citizen) {
-      return sendAll(aliveUser, () => ({
-        res: "gameFinish",
-        data: "mafiaWin",
-      }));
-    }
-
-    callback();
-  };
-
-  const submitResult = (
-    selectedUsers: string[],
-    aliveUser: string[],
-    turn: string
-  ) => {
-    const mostSelected = selectedUsers.reduce((acc, cur) => {
-      acc[cur] = (acc[cur] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    const [name, votes] = Object.entries(mostSelected).reduce(
-      (max, entry) => (entry[1] > max[1] ? entry : max),
-      ["", -1]
-    );
-
-    const rooms = getRooms(socket.roomId || "");
-
-    const dieUser = aliveUser.reduce((acc, id) => {
-      const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-      return userSocket.name === name ? userSocket : acc;
-    }, {} as CustomSocket);
-
-    if (turn === "vote") {
-      if (aliveUser.length / 2 < votes) {
-        dieUser.isDie = true;
-
-        const playerStatuses = getPlayerListtatuses();
-        gameFinish(aliveUser, dieUser, turn, () =>
-          sendAll(rooms, () => ({
-            res: "vote result",
-            data: { name, playerStatuses },
-          }))
-        );
-      } else {
-        sendAll(rooms, () => ({
-          res: "vote result",
-          data: "",
-        }));
-      }
-    }
-
-    if (turn === "heal") {
-      dieUser.isHeal = true;
-      sendAll(rooms, () => ({
-        res: "heal result",
-        data: "",
-      }));
-    }
-
-    if (turn === "check") {
-      const checkRole = dieUser.role;
-      socket.emit("check result", checkRole);
-    }
-
-    if (turn === "kill") {
-      if (dieUser.isHeal) {
-        sendAll(rooms, () => ({
-          res: "kill result",
-          data: "",
-        }));
-      } else {
-        dieUser.isDie = true;
-        const playerStatuses = getPlayerListtatuses();
-
-        gameFinish(aliveUser, dieUser, turn, () =>
-          sendAll(rooms, () => ({
-            res: "kill result",
-            data: { name, playerStatuses },
-          }))
-        );
-      }
-    }
-
-    aliveUser.forEach((id) => {
-      const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-      userSocket.selected = "";
-      userSocket.isHeal = false;
-    });
-  };
-
-  socket.on("discussionFinish", () => {
-    const { roomId } = socket;
-
-    if (roomId) {
-      const rooms = getRooms(roomId);
-      socket.isLoading = true;
-
-      const allLoading = rooms.every((id) => {
-        const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-        return userSocket.isLoading;
+      sendAll(rooms, () => {
+        return {
+          res: "playerLeave",
+          data: name,
+        };
       });
 
-      if (allLoading) {
-        sendAll(rooms, (userSocket) => {
-          userSocket.isLoading = false;
-
-          return {
-            res: "discussionFinishRes",
-            data: "",
-          };
-        });
-      }
-    }
-  });
-
-  socket.on("clearGame", () => {
-    const { roomId } = socket;
-
-    if (roomId) {
-      const rooms = getRooms(roomId);
-
-      rooms.forEach((id) => {
-        const userSocket = io.sockets.sockets.get(id) as CustomSocket;
-
-        userSocket.role = undefined;
-        userSocket.isDie = false;
-        userSocket.isHeal = false;
-        userSocket.isReady = false;
-      });
-
-      const players = getPlayerList();
-
-      sendAll(rooms, () => ({
-        res: "clearGameRes",
-        data: players,
-      }));
+      socket.leave(roomId);
+      socket.disconnect();
     }
   });
 });
