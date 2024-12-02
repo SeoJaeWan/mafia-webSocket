@@ -1,22 +1,11 @@
 import { Socket, Server } from "socket.io";
 import http from "http";
-import * as dotenv from "dotenv";
-
-const env = process.env.NODE_ENV;
-const envPath = env === "production" ? ".env.production" : ".env.development";
-
-dotenv.config({ path: envPath });
 
 const server = http.createServer();
 
 const port = 4000;
 
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CORS,
-    methods: ["GET", "POST"],
-  },
-});
+const io = new Server(server);
 
 interface Room {
   roomId: string;

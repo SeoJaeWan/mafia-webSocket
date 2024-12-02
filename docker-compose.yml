@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  mafia-server:
+    build:
+      context: .
+    container_name: mafia-server
+    ports:
+      - "4000:4000"
+    networks:
+      - shared_network
+
+networks:
+  shared_network:
+    external: true
