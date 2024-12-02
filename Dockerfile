@@ -6,9 +6,9 @@ WORKDIR /build
 # 패키지 파일 build 디렉토리에 복사
 COPY package.json yarn.lock ./
 
-# 패키지 설치 및 캐시 초기화 
+# 패키지 설치
 # npm이라면 RUN npm ci --omit=dev && npm cache clean --force
-RUN yarn install && yarn cache clean
+RUN yarn install
 
 COPY . .
 
@@ -22,8 +22,8 @@ WORKDIR /app
 # 패키지 파일 복사
 COPY package.json yarn.lock ./
 
-# 패키지 설치 및 캐시 초기화
-RUN yarn install --production && yarn cache clean
+# 패키지 설치
+RUN yarn install --production
 
 # 빌드 파일 복사
 COPY --from=build /build/dist ./dist
