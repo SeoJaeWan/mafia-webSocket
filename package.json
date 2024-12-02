@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "build": "tsc",
     "start": "NODE_ENV=production ts-node ./src/app.ts",
     "dev": "NODE_ENV=development ts-node ./src/app.ts"
   },
