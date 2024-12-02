@@ -13,7 +13,11 @@ app.get("/", (req, res) => {
   res.send("Hello World");
 });
 
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: "www.seojaewan.com",
+  },
+});
 
 interface Room {
   roomId: string;
