@@ -1,4 +1,4 @@
-FROM node:20.16-alpine3.19 AS base
+FROM node:20.16-alpine3.19
 
 # 작업 디렉토리 변경
 WORKDIR /build
