@@ -15,7 +15,7 @@ app.get("/", (req, res) => {
 
 const io = new Server(server, {
   cors: {
-    origin: "www.seojaewan.com",
+    origin: "http://www.seojaewan.com",
   },
 });
 
