@@ -16,4 +16,4 @@ COPY . .
 EXPOSE 4000
 
 # 실행 명령어
-CMD ["tsx", "./src/app.ts"]
+CMD ["yarn", "start"]

@@ -3,10 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "start": "tsx watch ./src/app.ts"
+    "start": "ts-node ./src/app.ts"
   },
   "dependencies": {
+    "@types/node": "^22.10.1",
     "socket.io": "^4.8.1",
-    "tsx": "^4.19.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
   }
 }
