@@ -8,7 +8,7 @@ COPY package.json yarn.lock ./
 
 # 패키지 설치 및 캐시 초기화 
 # npm이라면 RUN npm ci --omit=dev && npm cache clean --force
-RUN yarn install --production --frozen-lockfile
+RUN yarn install --immutable --immutable-cache --check-cache
 
 COPY . .
 
