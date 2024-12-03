@@ -5,6 +5,7 @@ services:
     build:
       context: .
     container_name: mafia-server
+    image: mafia-server
     ports:
       - "4000:4000"
     networks:
