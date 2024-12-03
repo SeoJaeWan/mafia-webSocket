@@ -1,16 +1,36 @@
 import { Socket, Server } from "socket.io";
 import http from "http";
+import express from "express";
 
-const server = http.createServer();
+const app = express();
+const server = http.createServer(app);
 
 const port = 4000;
 
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"],
-  },
+app.get("/", (req, res) => {
+  const userAgent = req.headers["user-agent"]!;
+  console.log(`User-Agent: ${userAgent}`);
+
+  // 간단한 User-Agent 분석 예시
+  let deviceType = "Unknown";
+  if (/mobile/i.test(userAgent)) {
+    deviceType = "Mobile";
+  } else if (/tablet/i.test(userAgent)) {
+    deviceType = "Tablet";
+  } else if (/desktop|linux|windows|macintosh/i.test(userAgent)) {
+    deviceType = "Desktop";
+  }
+
+  const forwarded = req.headers["x-forwarded-for"];
+
+  const clientIp = forwarded || req.connection.remoteAddress;
+
+  console.log("Hello World");
+
+  res.send(`Hello World : ${clientIp}, ${deviceType}`);
 });
+
+const io = new Server(server);
 
 interface Room {
   roomId: string;
