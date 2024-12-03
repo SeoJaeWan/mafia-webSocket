@@ -34,7 +34,7 @@ jobs:
           script: |
             cd /home/${{ secrets.SERVER_USER }}
 
-            if [ ! -d  mafia-server/.git" ]; then
+            if [ ! -d  "mafia-server/.git" ]; then
               echo "Repository does not exist. Cloning the repository..."
               git clone https://github.com/${{ github.repository }}.git mafia-server
               cd mafia-server
@@ -43,6 +43,11 @@ jobs:
               echo "Repository exists. Pulling latest changes..."
               cd mafia-server
               git pull origin main
+            fi
+
+            if ! docker network inspect shared_network >/dev/null 2>&1; then
+              echo "Network 'shared_network' does not exist. Creating it..."
+              docker network create shared_network
             fi
 
             docker-compose pull
