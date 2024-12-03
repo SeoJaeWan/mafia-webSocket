@@ -2,10 +2,8 @@ version: "3.8"
 
 services:
   mafia-server:
-    build:
-      context: .
     container_name: mafia-server
-    image: mafia-server
+    image: sjw7324/mafia-server:latest
     ports:
       - "4000:4000"
     networks:
