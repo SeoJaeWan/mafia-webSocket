@@ -8,9 +8,26 @@ const server = http.createServer(app);
 const port = 4000;
 
 app.get("/", (req, res) => {
+  const userAgent = req.headers["user-agent"]!;
+  console.log(`User-Agent: ${userAgent}`);
+
+  // 간단한 User-Agent 분석 예시
+  let deviceType = "Unknown";
+  if (/mobile/i.test(userAgent)) {
+    deviceType = "Mobile";
+  } else if (/tablet/i.test(userAgent)) {
+    deviceType = "Tablet";
+  } else if (/desktop|linux|windows|macintosh/i.test(userAgent)) {
+    deviceType = "Desktop";
+  }
+
+  const forwarded = req.headers["x-forwarded-for"];
+
+  const clientIp = forwarded || req.connection.remoteAddress;
+
   console.log("Hello World");
 
-  res.send("Hello World");
+  res.send(`Hello World : ${clientIp}, ${deviceType}`);
 });
 
 const io = new Server(server);
