@@ -45,6 +45,11 @@ jobs:
               git pull origin main
             fi
 
+            if ! docker network inspect shared_network >/dev/null 2>&1; then
+              echo "Network 'shared_network' does not exist. Creating it..."
+              docker network create shared_network
+            fi
+
             docker-compose pull
             docker-compose down
             docker-compose up -d
