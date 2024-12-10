@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "start": "NODE_ENV=production ts-node ./src/app.ts",
-    "dev": "NODE_ENV=development ts-node ./src/app.ts"
+    "start": "ts-node ./src/app.ts",
+    "dev": "ts-node ./src/app.ts"
   },
   "dependencies": {
     "@types/node": "^22.10.1",
