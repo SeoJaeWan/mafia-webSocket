@@ -4,6 +4,7 @@ services:
   mafia-server:
     container_name: mafia-server
     image: sjw7324/mafia-server:latest
+    restart: unless-stopped
     ports:
       - "4000:4000"
     networks:
